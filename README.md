@@ -54,12 +54,15 @@ Participants see themselves transformed into abstract geometric compositions, wh
 |-----|----------|---------|
 | **S** | Toggle skeleton & keypoints visibility | ON |
 | **O** | Toggle Schlemer connections visibility | ON |
+| **E** | Toggle sequential ellipses visibility | OFF |
+| **X** | Toggle unified offset contour visibility | OFF |
+| **B** | Toggle video background (black when off) | ON |
 
 ### Configuration
 | Key | Function |
 |-----|----------|
-| **R** | Reconfigure Schlemer connections (refresh) |
-| **C** | Recalculate line length based on current pose |
+| **R** | Reconfigure Schlemer connections + Toggle E ellipses fill (stroke/solid) |
+| **C** | Recalculate line length + Toggle X ellipses fill (stroke/solid) |
 
 ### Smoothing Adjustment
 | Key | Function |
@@ -175,7 +178,12 @@ smoothedPosition = previousPosition × (1 - factor) + newPosition × factor
 3. **Position camera** to capture full body of participants
 4. **Test lighting conditions** - ensure good visibility
 5. **Adjust smoothing** based on space and movement type
-6. **Hide skeleton** (press S) for cleaner Schlemer-only view
+6. **Customize visual display**:
+   - Press **S** to hide skeleton for cleaner views
+   - Press **B** to hide video and show graphics on black background
+   - Press **E** to show inner ellipses (body structure)
+   - Press **X** to show expanded outer contour (body volume/aura)
+   - Press **O** to show Schlemer geometric connections
 
 ---
 
@@ -195,10 +203,11 @@ OSKAR/
 
 The installation renders multiple visual layers (all toggleable):
 
-### 1. Video Layer (always visible)
+### 1. Video Layer (toggle with B)
 - Live webcam feed
 - Mirrored for natural interaction
 - Scales to fill canvas while maintaining aspect ratio
+- Can be toggled OFF to show graphics on pure black background
 
 ### 2. Skeleton Layer (toggle with S)
 - **Connections**: Red lines (0.5px) connecting body joints
@@ -210,6 +219,89 @@ The installation renders multiple visual layers (all toggleable):
 - Fixed configuration of 10 lines
 - Uniform length based on body proportions
 - Extends beyond body boundaries
+
+### 4. Sequential Ellipses Layer (toggle with E)
+- **White stroke ellipses** (1px, no fill) drawn along skeleton segments
+- **Fill mode**: Press **R** to toggle between stroke and solid white fill
+- Creates organic flowing shapes following anatomical body connections
+- **Body segments**: Major axis aligned along the segment, minor axis = major/1.618
+- **Face connections are excluded** (no ellipses on nose/eyes connections)
+- **Special head ellipse**: From left ear to right ear with **inverted proportions**
+  - Distance between ears becomes the **minor axis** (horizontal)
+  - Perpendicular dimension is the **major axis** = distance × 1.618 (vertical)
+  - Creates a taller ellipse representing the head volume
+- Calculated in real-time based on 2D distance between connected joints
+- Creates a fluid, continuous visual representation of body structure
+- **When filled**: Creates solid white body segments that can blend together
+
+### 5. Unified Offset Contour Layer (toggle with X)
+- **Expanded ellipses** that create an outer boundary around the body
+- **Fill mode**: Press **C** to toggle between stroke and solid white fill
+- Uses the same ellipse calculations as layer 4 but with **1.618× offset applied**
+- All ellipses are scaled outward by the golden ratio multiplier
+- **Visual effect**: Overlapping expanded ellipses create a **unified outer silhouette**
+- When ellipses intersect, they form a continuous boundary suggesting a boolean union
+- Creates an **expanded body volume** representation
+- Works independently from the E key (can show both or either)
+- Perfect for creating an "aura" or volumetric representation of the body
+- **Key difference from E**: These are larger, creating the outer envelope of the form
+- **When filled**: Creates a solid white volumetric blob around the body
+
+### Recommended Visual Combinations
+
+**Pure Graphics Mode:**
+- Press **B** to hide video (black background)
+- Press **S** to hide skeleton
+- Press **O** to show Schlemer connections
+- Result: Clean white geometric lines on black
+
+**Organic Body Mode:**
+- Press **B** to hide video
+- Press **S** and **O** to hide other layers
+- Press **E** to show ellipses only
+- Result: Flowing elliptical forms on black
+
+**Full Abstraction:**
+- Press **B** to hide video
+- Enable **O** (Schlemer) and **E** (Ellipses)
+- Result: Geometric + organic fusion on black
+
+**Video Overlay:**
+- Keep video ON (default)
+- Toggle any combination of S, O, E, X as desired
+- Result: Graphics overlaid on live video feed
+
+**Body Volume Visualization:**
+- Press **B** to hide video
+- Press **S** and **O** to hide skeleton and Schlemer
+- Press **E** and **X** together
+- Result: Inner ellipses (E) + outer contour (X) create volumetric body representation
+
+**Aura Effect:**
+- Press **B** to hide video
+- Hide all except **X** (unified contour)
+- Result: Expanded outer boundary only, like a body "aura"
+
+**Layered Depth:**
+- Black background (**B** off)
+- Enable **E** + **X** simultaneously
+- Result: Two-layer ellipse system showing inner structure and outer volume
+
+**Solid Body Blob:**
+- Press **B** to hide video
+- Enable **X** and press **C** to fill
+- Result: Solid white volumetric blob representing body space
+
+**Organic Fill with Structure:**
+- Black background, enable **E** and **X**
+- Press **R** to fill inner ellipses (solid segments)
+- Keep **X** as stroke for outer boundary
+- Result: Filled body segments with outer contour line
+
+**Complete Fill:**
+- Enable both **E** and **X**
+- Press **R** and **C** to fill both
+- Result: Dense white form with overlapping inner and outer volumes
 
 ---
 
@@ -311,6 +403,76 @@ For inquiries about reuse or adaptation, please contact the creators.
 - Projection mapping support
 - Trail effects on lines
 - Variable line thickness based on movement speed
+
+---
+
+## 🔬 Technical Notes: Extracting Outer Contour from Filled Blobs
+
+### Question: Is it possible to get the outer contour of a white blob generated inside the code?
+
+**Short Answer: Yes, but it's computationally intensive in real-time.**
+
+### Approaches:
+
+#### 1. **Marching Squares Algorithm** (Most reliable)
+- Scans the pixel buffer to detect edges between white and black pixels
+- Traces the outline to create a continuous contour path
+- **Pros**: Accurate, creates true outer boundary
+- **Cons**: CPU-intensive, requires pixel-level analysis each frame
+
+```javascript
+// Pseudo-code
+function extractContour() {
+  loadPixels();
+  let contour = marchingSquares(pixels, threshold=128);
+  return contour; // Array of points defining outer edge
+}
+```
+
+#### 2. **p5.js Pixel Buffer Analysis**
+- Render filled ellipses to an off-screen buffer
+- Use `loadPixels()` to analyze the image
+- Find boundary pixels where white meets black
+- Connect boundary points into a path
+
+**Implementation considerations:**
+- Requires `createGraphics()` for off-screen rendering
+- Need to scan pixels (can be slow for high-res canvas)
+- Would add 10-30ms processing time per frame
+
+#### 3. **OpenCV.js Integration**
+- Use OpenCV's `findContours()` function
+- Extremely efficient and robust
+- **Pros**: Fast, battle-tested algorithms
+- **Cons**: Adds ~1MB library dependency
+
+#### 4. **Computational Geometry Approach**
+- Calculate actual intersection points of all ellipses
+- Use Sutherland-Hodgman or similar clipping algorithm
+- Build convex/concave hull from intersection points
+- **Pros**: Mathematically precise
+- **Cons**: Complex implementation, many edge cases
+
+### Recommended Approach for OSKAR:
+
+**Use filled X layer (current implementation) as visual approximation:**
+- When ellipses are filled and overlap, they naturally create a blob
+- The overlapping creates visual union effect
+- For performance, this is the best option
+
+**If true contour is needed:**
+1. Render filled X layer to off-screen graphics buffer
+2. Use simplified marching squares on downsampled image
+3. Draw resulting contour path with stroke
+4. Cache result for several frames to reduce computation
+
+### Performance Impact:
+- Current filled ellipses: <1ms overhead
+- Pixel-based contour extraction: 10-30ms (may cause frame drops)
+- Acceptable for recording/still captures, challenging for real-time at 60fps
+
+### Conclusion:
+For real-time installation, the current overlapping filled ellipses provide an excellent visual approximation of a unified blob. For post-processing or special modes, contour extraction can be implemented using marching squares or OpenCV.js.
 
 ---
 

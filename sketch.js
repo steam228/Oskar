@@ -19,6 +19,13 @@ let previousPoses = []; // Store previous poses for smoothing
 // Visibility toggles
 let showSkeleton = true; // Toggle for skeleton connections and keypoints
 let showSchlemer = true; // Toggle for Schlemer connections
+let showEllipses = false; // Toggle for sequential ellipses
+let showVideo = true; // Toggle for video background
+let showUnifiedContour = false; // Toggle for unified offset ellipse contour
+
+// Fill toggles for ellipses
+let fillEllipses = false; // Toggle fill for E ellipses
+let fillUnifiedContour = false; // Toggle fill for X ellipses
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -54,8 +61,10 @@ function draw() {
   let offsetX = (width - video.width) / 2;
   let offsetY = (height - video.height) / 2;
 
-  // Draw the webcam video at its actual size (set by videoResize)
-  image(video, offsetX, offsetY);
+  // Draw the webcam video (if enabled) or keep black background
+  if (showVideo) {
+    image(video, offsetX, offsetY);
+  }
 
   // Draw skeleton connections and keypoints (if enabled)
   if (showSkeleton) {
@@ -66,6 +75,16 @@ function draw() {
   // Draw Schlemer sticks (if enabled)
   if (showSchlemer) {
     drawSchlemerSticks(offsetX, offsetY); // Draw the Schlemer connections
+  }
+
+  // Draw sequential ellipses (if enabled)
+  if (showEllipses) {
+    drawSequentialEllipses(offsetX, offsetY);
+  }
+
+  // Draw unified offset contour (if enabled)
+  if (showUnifiedContour) {
+    drawUnifiedContour(offsetX, offsetY);
   }
 
   pop();
@@ -244,6 +263,185 @@ function drawKeypoints(offsetX, offsetY) {
   }
 }
 
+function drawSequentialEllipses(offsetX, offsetY) {
+  // Draw ellipses along skeleton segments
+  for (let i = 0; i < poses.length; i++) {
+    let pose = poses[i];
+
+    // Special case: Head ellipse from left ear (3) to right ear (4)
+    // This one uses inverted proportions (minor axis is larger)
+    let leftEar = pose.keypoints[3];
+    let rightEar = pose.keypoints[4];
+
+    if (leftEar.confidence > 0.1 && rightEar.confidence > 0.1) {
+      drawEllipseSegment(leftEar, rightEar, offsetX, offsetY, true);
+    }
+
+    // Draw ellipses for all skeleton connections (excluding face connections)
+    for (let j = 0; j < connections.length; j++) {
+      let pointAIndex = connections[j][0];
+      let pointBIndex = connections[j][1];
+
+      // Skip face connections (nose=0, eyes=1,2, ears=3,4)
+      // Only allow connections that don't involve indices 0, 1, 2
+      let isFaceConnection = pointAIndex <= 2 || pointBIndex <= 2;
+
+      if (!isFaceConnection) {
+        let pointA = pose.keypoints[pointAIndex];
+        let pointB = pose.keypoints[pointBIndex];
+
+        // Only draw if both points are confident
+        if (pointA.confidence > 0.1 && pointB.confidence > 0.1) {
+          drawEllipseSegment(pointA, pointB, offsetX, offsetY, false);
+        }
+      }
+    }
+  }
+}
+
+function drawEllipseSegment(
+  point1,
+  point2,
+  offsetX,
+  offsetY,
+  inverted = false
+) {
+  // Calculate center point between the two keypoints
+  let centerX = (point1.x + point2.x) / 2;
+  let centerY = (point1.y + point2.y) / 2;
+
+  // Calculate distance between points
+  let dx = point2.x - point1.x;
+  let dy = point2.y - point1.y;
+  let distance = sqrt(dx * dx + dy * dy);
+
+  let majorAxis, minorAxis;
+
+  if (inverted) {
+    // For ear-to-ear: distance is the minor axis, major is perpendicular and larger
+    minorAxis = distance;
+    majorAxis = distance * 1.618;
+  } else {
+    // For body segments: distance is the major axis
+    majorAxis = distance;
+    minorAxis = distance / 1.618;
+  }
+
+  // Calculate angle of rotation (angle of the line between points)
+  let angle = atan2(dy, dx);
+
+  // Draw the ellipse
+  push();
+  translate(centerX + offsetX, centerY + offsetY);
+  rotate(angle);
+
+  // Apply fill based on toggle
+  if (fillEllipses) {
+    fill(255);
+    noStroke();
+  } else {
+    noFill();
+    stroke(255);
+    strokeWeight(1);
+  }
+
+  ellipse(0, 0, majorAxis, minorAxis);
+
+  pop();
+}
+
+function drawUnifiedContour(offsetX, offsetY) {
+  // Draw offset ellipses that create a unified outer contour
+  // All ellipses are scaled by 1.618× to create an expanded outer boundary
+
+  for (let i = 0; i < poses.length; i++) {
+    let pose = poses[i];
+
+    // Special case: Head ellipse from left ear to right ear with offset
+    let leftEar = pose.keypoints[3];
+    let rightEar = pose.keypoints[4];
+
+    if (leftEar.confidence > 0.1 && rightEar.confidence > 0.1) {
+      drawOffsetEllipseSegment(leftEar, rightEar, offsetX, offsetY, true);
+    }
+
+    // Draw offset ellipses for all skeleton connections (excluding face)
+    for (let j = 0; j < connections.length; j++) {
+      let pointAIndex = connections[j][0];
+      let pointBIndex = connections[j][1];
+
+      // Skip face connections (nose=0, eyes=1,2)
+      let isFaceConnection = pointAIndex <= 2 || pointBIndex <= 2;
+
+      if (!isFaceConnection) {
+        let pointA = pose.keypoints[pointAIndex];
+        let pointB = pose.keypoints[pointBIndex];
+
+        // Only draw if both points are confident
+        if (pointA.confidence > 0.1 && pointB.confidence > 0.1) {
+          drawOffsetEllipseSegment(pointA, pointB, offsetX, offsetY, false);
+        }
+      }
+    }
+  }
+}
+
+function drawOffsetEllipseSegment(
+  point1,
+  point2,
+  offsetX,
+  offsetY,
+  inverted = false
+) {
+  // Calculate center point between the two keypoints
+  let centerX = (point1.x + point2.x) / 2;
+  let centerY = (point1.y + point2.y) / 2;
+
+  // Calculate distance between points
+  let dx = point2.x - point1.x;
+  let dy = point2.y - point1.y;
+  let distance = sqrt(dx * dx + dy * dy);
+
+  let majorAxis, minorAxis;
+  let offsetMultiplier = 1.618; // Offset factor to expand ellipses
+
+  if (inverted) {
+    // For ear-to-ear: distance is the minor axis, major is perpendicular and larger
+    minorAxis = distance;
+    majorAxis = distance * 1.618;
+  } else {
+    // For body segments: distance is the major axis
+    majorAxis = distance;
+    minorAxis = distance / 1.618;
+  }
+
+  // Apply offset: multiply both axes by 1.618 to expand outward
+  majorAxis *= offsetMultiplier;
+  minorAxis *= offsetMultiplier;
+
+  // Calculate angle of rotation (angle of the line between points)
+  let angle = atan2(dy, dx);
+
+  // Draw the offset ellipse
+  push();
+  translate(centerX + offsetX, centerY + offsetY);
+  rotate(angle);
+
+  // Apply fill based on toggle
+  if (fillUnifiedContour) {
+    fill(255);
+    noStroke();
+  } else {
+    noFill();
+    stroke(255);
+    strokeWeight(1);
+  }
+
+  ellipse(0, 0, majorAxis, minorAxis);
+
+  pop();
+}
+
 /**
  * Smooth keypoint positions using exponential moving average
  *
@@ -350,9 +548,21 @@ function doubleClicked() {
 function keyPressed() {
   if (key === "r" || key === "R") {
     configureSchlemerConnections();
+    // Also toggle fill for E ellipses
+    fillEllipses = !fillEllipses;
+    console.log(
+      "E ellipses fill:",
+      fillEllipses ? "ON (solid)" : "OFF (stroke)"
+    );
   }
   if (key === "c" || key === "C") {
     calculateSchlemerLineLength();
+    // Also toggle fill for X ellipses
+    fillUnifiedContour = !fillUnifiedContour;
+    console.log(
+      "X ellipses fill:",
+      fillUnifiedContour ? "ON (solid)" : "OFF (stroke)"
+    );
   }
 
   // Toggle visibility
@@ -365,6 +575,21 @@ function keyPressed() {
     console.log(
       "Schlemer connections visibility:",
       showSchlemer ? "ON" : "OFF"
+    );
+  }
+  if (key === "e" || key === "E") {
+    showEllipses = !showEllipses;
+    console.log("Sequential ellipses visibility:", showEllipses ? "ON" : "OFF");
+  }
+  if (key === "b" || key === "B") {
+    showVideo = !showVideo;
+    console.log("Video background:", showVideo ? "ON" : "OFF");
+  }
+  if (key === "x" || key === "X") {
+    showUnifiedContour = !showUnifiedContour;
+    console.log(
+      "Unified contour visibility:",
+      showUnifiedContour ? "ON" : "OFF"
     );
   }
 

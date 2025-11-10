@@ -326,4 +326,9 @@ class SchlemerVisualizer {
       { lower: 5, upper: 6, centered: true, lengthRatio: 0.75 },
     ];
   }
+  
+  updateTrailParameters(interval, maxFrames) {
+    this.trailInterval = interval;
+    this.trailMaxFrames = maxFrames;
+  }
 }

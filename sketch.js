@@ -31,12 +31,99 @@ let schlemerLineLength = 0;
 let maskPoints = [];
 let maskEnabled = false;
 
+// OskarBit sensor integration
+let sensorPort;
+const SENSOR_BAUDRATE = 115200;
+const MAX_SENSORS = 6;
+let sensorData = {};
+let sensorConnected = false;
+let mostDynamicSensor = null;
+
+// Trail control from sensors
+let sensorTrailInterval = 3;  // Default interval between trail captures
+let sensorTrailCount = 60;    // Default max trail frames
+
 // Mask editing
 let maskEditMode = false;
 let selectedMaskPoint = -1;
 
 // Track shift key state for mouse interactions
 let isShiftDown = false;
+
+// Sensor Data Class (simplified from OskarBit)
+class SensorStream {
+  constructor(id) {
+    this.id = id;
+    this.lastUpdate = Date.now();
+    this.motion = 0;
+    this.x = 0;
+    this.y = 0;
+    this.z = 0;
+    this.calibrating = true;
+    this.calibrationData = [];
+    this.baseX = 0;
+    this.baseY = 0; 
+    this.baseZ = 0;
+    this.deadzone = 250;
+  }
+  
+  update(x, y, z) {
+    if (isNaN(x) || isNaN(y) || isNaN(z)) return;
+    
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    
+    if (this.calibrating) {
+      this.calibrationData.push({ x, y, z });
+      if (this.calibrationData.length >= 30) { // Faster calibration
+        this.finishCalibration();
+      }
+      this.lastUpdate = Date.now();
+      return;
+    }
+    
+    // Calculate motion
+    let dx = this.x - this.baseX;
+    let dy = this.y - this.baseY;
+    let dz = this.z - this.baseZ;
+    let distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    if (distance < this.deadzone) {
+      this.motion = 0;
+    } else if (distance < 500) {
+      this.motion = 1;
+    } else if (distance < 1000) {
+      this.motion = 2;
+    } else if (distance < 2000) {
+      this.motion = 3;
+    } else if (distance < 3500) {
+      this.motion = 4;
+    } else {
+      this.motion = 5;
+    }
+    
+    this.lastUpdate = Date.now();
+  }
+  
+  finishCalibration() {
+    let sumX = 0, sumY = 0, sumZ = 0;
+    for (let d of this.calibrationData) {
+      sumX += d.x;
+      sumY += d.y;
+      sumZ += d.z;
+    }
+    this.baseX = sumX / this.calibrationData.length;
+    this.baseY = sumY / this.calibrationData.length;
+    this.baseZ = sumZ / this.calibrationData.length;
+    this.calibrating = false;
+    console.log(`✓ Sensor ${this.id} calibrated`);
+  }
+  
+  isActive() {
+    return Date.now() - this.lastUpdate < 5000;
+  }
+}
 
 function preload() {
   // Preload is kept for consistency but video/pose init moved to setup
@@ -70,15 +157,15 @@ async function setup() {
 
   // Create visualizers with different colors
   visualizers1 = [
-    new WhiteSchlemerVisualizer(canvas1),   // White (original)
-    new RedSchlemerVisualizer(canvas1),     // Red
-    new BlueSchlemerVisualizer(canvas1),    // Blue
+    new WhiteSchlemerVisualizer(canvas1),           // White with trails
+    new ClearRedSchlemerVisualizer(canvas1),        // Clear white, no trails
+    new SpringyBlueSchlemerVisualizer(canvas1),     // Springy white curves with trails
   ];
 
   visualizers2 = [
-    new WhiteSchlemerVisualizer(canvas2),   // White (original)
-    new RedSchlemerVisualizer(canvas2),     // Red
-    new BlueSchlemerVisualizer(canvas2),    // Blue
+    new WhiteSchlemerVisualizer(canvas2),           // White with trails
+    new ClearRedSchlemerVisualizer(canvas2),        // Clear white, no trails
+    new SpringyBlueSchlemerVisualizer(canvas2),     // Springy white curves with trails
   ];
 
   // Set initial visualizers
@@ -91,6 +178,18 @@ async function setup() {
   // Load saved detection mask
   loadDetectionMask();
 
+  // Initialize sensor port
+  try {
+    sensorPort = createSerial();
+    let usedPorts = usedSerialPorts();
+    if (usedPorts.length > 0) {
+      sensorPort.open(usedPorts[0], SENSOR_BAUDRATE);
+      console.log("✓ Sensor port available");
+    }
+  } catch (e) {
+    console.log("⚠ Sensor port not available (optional)");
+  }
+
   console.log("\n=== OSKAR Dual Canvas System with p5.mapper ===");
   console.log("\n=== Projection Mapping ===");
   console.log("C - Toggle calibration mode (drag corners to map)");
@@ -101,8 +200,8 @@ async function setup() {
   console.log("Shift+1 - Show/Hide Canvas 1");
   console.log("Shift+2 - Show/Hide Canvas 2");
   console.log("\n=== Visualizer Controls ===");
-  console.log("Alt+1 - Cycle Canvas 1 (White, Red, Blue)");
-  console.log("Alt+2 - Cycle Canvas 2 (White, Red, Blue)");
+  console.log("Alt+1 - Cycle Canvas 1 (White+Trail, Clear, Springy+Trail)");
+  console.log("Alt+2 - Cycle Canvas 2 (White+Trail, Clear, Springy+Trail)");
   console.log("\n=== OSKAR Controls (when OSKAR is displayed) ===");
   console.log("B - Toggle video background");
   console.log("T - Toggle trail effect");
@@ -114,6 +213,8 @@ async function setup() {
   );
   console.log("E - Enable/disable mask");
   console.log("X - Clear mask");
+  console.log("\n=== Springy Controls ===");
+  console.log("+ / - - Increase/decrease elasticity (when Springy is active)");
 
   console.log("\n✓ System initialized");
 }
@@ -348,8 +449,101 @@ function calculateVideoConfig(canvasWidth, canvasHeight) {
   };
 }
 
+// === SENSOR FUNCTIONS ===
+
+function readSensorData() {
+  if (!sensorPort || !sensorPort.opened()) return;
+  
+  // Read multiple messages per frame to prevent lag
+  for (let i = 0; i < 20; i++) {
+    let data = sensorPort.readUntil("\n");
+    if (!data) break;
+    parseSensorMessage(data.trim());
+  }
+  
+  // Update connection status
+  sensorConnected = Object.values(sensorData).some(s => s.isActive());
+}
+
+function parseSensorMessage(msg) {
+  // Registration: S1-S6
+  let reg = msg.match(/^S([1-6])$/);
+  if (reg) {
+    let id = parseInt(reg[1]);
+    if (!sensorData[id]) {
+      sensorData[id] = new SensorStream(id);
+      console.log(`✓ Sensor ${id} connected`);
+    }
+    return;
+  }
+
+  // Data: m1-m6 x=123 y=456 z=789
+  let data = msg.match(/^m([1-6])/);
+  if (data) {
+    let id = parseInt(data[1]);
+    
+    if (!sensorData[id]) {
+      sensorData[id] = new SensorStream(id);
+    }
+    
+    let xm = msg.match(/x=([^,\s]+)/);
+    let ym = msg.match(/y=([^,\s]+)/);
+    let zm = msg.match(/z=([^,\s]+)/);
+    
+    if (xm && ym && zm) {
+      sensorData[id].update(
+        parseFloat(xm[1]),
+        parseFloat(ym[1]),
+        parseFloat(zm[1])
+      );
+    }
+  }
+}
+
+function updateTrailParameters() {
+  // Find the most dynamic sensor (highest motion value)
+  let maxMotion = 0;
+  mostDynamicSensor = null;
+  
+  for (let id in sensorData) {
+    let sensor = sensorData[id];
+    if (sensor.isActive() && !sensor.calibrating && sensor.motion > maxMotion) {
+      maxMotion = sensor.motion;
+      mostDynamicSensor = sensor;
+    }
+  }
+  
+  if (mostDynamicSensor) {
+    // X values affect trail interval (how often trail marks are created)
+    // Higher X = faster trail capture
+    let xInfluence = map(Math.abs(mostDynamicSensor.x - mostDynamicSensor.baseX), 0, 2000, 1, 10);
+    sensorTrailInterval = Math.max(1, Math.floor(8 - xInfluence)); // 1-7 range
+    
+    // Y values affect trail count (how many trail marks persist)
+    // Higher Y = more trails
+    let yInfluence = map(Math.abs(mostDynamicSensor.y - mostDynamicSensor.baseY), 0, 2000, 1, 5);
+    sensorTrailCount = Math.floor(30 + yInfluence * 30); // 30-180 range
+    
+    // Update all visualizers with new trail parameters
+    for (let viz of visualizers1) {
+      if (viz.updateTrailParameters) {
+        viz.updateTrailParameters(sensorTrailInterval, sensorTrailCount);
+      }
+    }
+    for (let viz of visualizers2) {
+      if (viz.updateTrailParameters) {
+        viz.updateTrailParameters(sensorTrailInterval, sensorTrailCount);
+      }
+    }
+  }
+}
+
 function draw() {
   background(0);
+
+  // Read sensor data
+  readSensorData();
+  updateTrailParameters();
 
   // If in mask edit mode, show fullscreen unmapped video with mask editor
   if (maskEditMode) {
@@ -447,7 +641,7 @@ function keyPressed() {
     if (key === "1" || keyCode === 49) {
       viz1Index = (viz1Index + 1) % visualizers1.length;
       viz1 = visualizers1[viz1Index];
-      const names = ["White", "Red", "Blue"];
+      const names = ["White+Trail", "Clear", "Springy+Trail"];
       console.log(`✓ Canvas 1 → ${names[viz1Index]}`);
       return false;
     }
@@ -455,7 +649,7 @@ function keyPressed() {
     if (key === "2" || keyCode === 50) {
       viz2Index = (viz2Index + 1) % visualizers2.length;
       viz2 = visualizers2[viz2Index];
-      const names = ["White", "Red", "Blue"];
+      const names = ["White+Trail", "Clear", "Springy+Trail"];
       console.log(`✓ Canvas 2 → ${names[viz2Index]}`);
       return false;
     }
@@ -532,6 +726,29 @@ function keyPressed() {
       "✓ Schlemer stick length recalibrated:",
       schlemerLineLength.toFixed(1)
     );
+    return false;
+  }
+  
+  // Elasticity controls for springy visualizer
+  if (key === "+" || key === "=") {
+    for (let viz of [...visualizers1, ...visualizers2]) {
+      if (viz instanceof SpringyBlueSchlemerVisualizer) {
+        let newElasticity = viz.getElasticity() + 0.1;
+        viz.setElasticity(newElasticity);
+        console.log("✓ Elasticity increased:", newElasticity.toFixed(1));
+      }
+    }
+    return false;
+  }
+  
+  if (key === "-" || key === "_") {
+    for (let viz of [...visualizers1, ...visualizers2]) {
+      if (viz instanceof SpringyBlueSchlemerVisualizer) {
+        let newElasticity = viz.getElasticity() - 0.1;
+        viz.setElasticity(newElasticity);
+        console.log("✓ Elasticity decreased:", newElasticity.toFixed(1));
+      }
+    }
     return false;
   }
 

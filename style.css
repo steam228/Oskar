@@ -7,4 +7,15 @@
 
 body {
   overflow: hidden;
+  background-color: #000;
+}
+
+/* Ensure dommapper handles are visible and on top */
+.dommapper-handle {
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+.dommapper-container {
+  z-index: 9998 !important;
 }

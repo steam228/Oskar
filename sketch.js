@@ -14,7 +14,22 @@ let viz1Index = 0;
 let viz2Index = 1;
 let canvas1Visible = true;
 let canvas2Visible = true;
-let sharedPoseViz;
+
+// Shared video and pose detection
+let video;
+let bodyPose;
+let poses = [];
+let previousPoses = [];
+
+// Video configuration
+let showVideo = true;
+let mirrorMode = true;
+let smoothingFactor = 0.5;
+let schlemerLineLength = 0;
+
+// Detection mask
+let maskPoints = [];
+let maskEnabled = false;
 
 // Mask editing
 let maskEditMode = false;
@@ -24,9 +39,7 @@ let selectedMaskPoint = -1;
 let isShiftDown = false;
 
 function preload() {
-  // Initialize the pose visualizer during preload
-  // This ensures ml5's preload hooks work correctly
-  sharedPoseViz = new PoseVisualizer();
+  // Preload is kept for consistency but video/pose init moved to setup
 }
 
 async function setup() {
@@ -50,44 +63,27 @@ async function setup() {
   canvas1 = createGraphics(1280, 720);
   canvas2 = createGraphics(1280, 720);
 
-  // Initialize video and model for shared OSKAR instance
-  await sharedPoseViz.init();
-  await sharedPoseViz.loadModel();
-  sharedPoseViz.calculateSchlemerLineLength();
-  sharedPoseViz.configureSchlemerConnections();
+  // Initialize video and pose detection
+  await initVideo();
+  await loadPoseModel();
+  calculateSchlemerLineLength();
 
-  // Create wrapper functions to draw to specific graphics buffers
-  const poseViz1 = {
-    ...sharedPoseViz,
-    draw: (w, h) => {
-      sharedPoseViz.pg = canvas1;
-      sharedPoseViz.draw(w, h);
-    },
-  };
-
-  const poseViz2 = {
-    ...sharedPoseViz,
-    draw: (w, h) => {
-      sharedPoseViz.pg = canvas2;
-      sharedPoseViz.draw(w, h);
-    },
-  };
-
+  // Create visualizers with different colors
   visualizers1 = [
-    poseViz1,
-    new PlaceholderVisualizer(100, "Placeholder 1", canvas1),
-    new PlaceholderVisualizer(150, "Placeholder 2", canvas1),
+    new WhiteSchlemerVisualizer(canvas1),   // White (original)
+    new RedSchlemerVisualizer(canvas1),     // Red
+    new BlueSchlemerVisualizer(canvas1),    // Blue
   ];
 
   visualizers2 = [
-    poseViz2,
-    new PlaceholderVisualizer(100, "Placeholder 1", canvas2),
-    new PlaceholderVisualizer(150, "Placeholder 2", canvas2),
+    new WhiteSchlemerVisualizer(canvas2),   // White (original)
+    new RedSchlemerVisualizer(canvas2),     // Red
+    new BlueSchlemerVisualizer(canvas2),    // Blue
   ];
 
   // Set initial visualizers
-  viz1 = visualizers1[viz1Index]; // OSKAR
-  viz2 = visualizers2[viz2Index]; // Placeholder
+  viz1 = visualizers1[viz1Index]; // White
+  viz2 = visualizers2[viz2Index]; // Red
 
   // Load saved calibration
   pMapper.load("maps/map.json");
@@ -105,8 +101,8 @@ async function setup() {
   console.log("Shift+1 - Show/Hide Canvas 1");
   console.log("Shift+2 - Show/Hide Canvas 2");
   console.log("\n=== Visualizer Controls ===");
-  console.log("Alt+1 - Cycle Canvas 1 (OSKAR, Placeholder 1, Placeholder 2)");
-  console.log("Alt+2 - Cycle Canvas 2 (OSKAR, Placeholder 1, Placeholder 2)");
+  console.log("Alt+1 - Cycle Canvas 1 (White, Red, Blue)");
+  console.log("Alt+2 - Cycle Canvas 2 (White, Red, Blue)");
   console.log("\n=== OSKAR Controls (when OSKAR is displayed) ===");
   console.log("B - Toggle video background");
   console.log("T - Toggle trail effect");
@@ -122,6 +118,236 @@ async function setup() {
   console.log("\n✓ System initialized");
 }
 
+// === VIDEO AND POSE DETECTION FUNCTIONS ===
+
+async function initVideo() {
+  console.log("Initializing video capture...");
+  video = createCapture(VIDEO);
+  video.hide();
+
+  return new Promise((resolve) => {
+    video.elt.addEventListener("loadedmetadata", () => {
+      console.log("✓ Video ready:", video.width, "x", video.height);
+      // Add small delay to ensure video is truly ready
+      setTimeout(() => resolve(), 500);
+    });
+  });
+}
+
+function loadPoseModel() {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log("Loading ml5 bodyPose model...");
+
+      bodyPose = ml5.bodyPose(
+        "MoveNet",
+        {
+          modelType: "SINGLEPOSE_LIGHTNING",
+          enableSmoothing: true,
+          minPoseScore: 0.25,
+        },
+        () => {
+          // Model loaded callback
+          console.log("✓ Model loaded, starting detection...");
+          bodyPose.detectStart(video, gotPoses);
+          console.log("✓ Pose detection started");
+          resolve();
+        }
+      );
+    } catch (error) {
+      console.error("Error loading bodyPose model:", error);
+      reject(error);
+    }
+  });
+}
+
+function calculateSchlemerLineLength() {
+  if (poses.length === 0) return;
+
+  let pose = poses[0];
+  let nose = pose.keypoints[0];
+  let leftAnkle = pose.keypoints[15];
+  let rightAnkle = pose.keypoints[16];
+
+  if (
+    nose.confidence > 0.1 &&
+    (leftAnkle.confidence > 0.1 || rightAnkle.confidence > 0.1)
+  ) {
+    let ankleX, ankleY;
+
+    if (leftAnkle.confidence > 0.1 && rightAnkle.confidence > 0.1) {
+      ankleX = (leftAnkle.x + rightAnkle.x) / 2;
+      ankleY = (leftAnkle.y + rightAnkle.y) / 2;
+    } else if (leftAnkle.confidence > 0.1) {
+      ankleX = leftAnkle.x;
+      ankleY = leftAnkle.y;
+    } else {
+      ankleX = rightAnkle.x;
+      ankleY = rightAnkle.y;
+    }
+
+    let dx = nose.x - ankleX;
+    let dy = nose.y - ankleY;
+    let distance = Math.sqrt(dx * dx + dy * dy);
+    schlemerLineLength = distance;
+    
+    // Update all visualizers with new length
+    for (let viz of visualizers1) {
+      viz.updateSchlemerLineLength(schlemerLineLength);
+    }
+    for (let viz of visualizers2) {
+      viz.updateSchlemerLineLength(schlemerLineLength);
+    }
+  }
+}
+
+function smoothPoses(newPoses, factor) {
+  if (previousPoses.length === 0) {
+    return newPoses;
+  }
+
+  let smoothedPoses = [];
+
+  for (let i = 0; i < newPoses.length; i++) {
+    let newPose = newPoses[i];
+    let smoothedPose = { keypoints: [] };
+    let prevPose = previousPoses[i];
+
+    if (prevPose) {
+      for (let j = 0; j < newPose.keypoints.length; j++) {
+        let newKp = newPose.keypoints[j];
+        let prevKp = prevPose.keypoints[j];
+
+        let smoothedKp = {
+          x: prevKp.x * (1 - factor) + newKp.x * factor,
+          y: prevKp.y * (1 - factor) + newKp.y * factor,
+          confidence: newKp.confidence,
+          name: newKp.name,
+        };
+
+        smoothedPose.keypoints.push(smoothedKp);
+      }
+    } else {
+      smoothedPose = newPose;
+    }
+
+    smoothedPoses.push(smoothedPose);
+  }
+
+  return smoothedPoses;
+}
+
+function isPointInPolygon(point, polygon) {
+  let x = point.x;
+  let y = point.y;
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    let xi = polygon[i].x;
+    let yi = polygon[i].y;
+    let xj = polygon[j].x;
+    let yj = polygon[j].y;
+
+    let intersect =
+      yi > y != yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+function filterPosesByMask(poses) {
+  if (!maskEnabled || maskPoints.length < 3) {
+    return poses;
+  }
+
+  let filteredPoses = [];
+
+  for (let pose of poses) {
+    let validKeypoints = 0;
+    for (let keypoint of pose.keypoints) {
+      if (keypoint.confidence > 0.1) {
+        if (isPointInPolygon(keypoint, maskPoints)) {
+          validKeypoints++;
+        }
+      }
+    }
+
+    // Only include pose if at least quarter of visible keypoints are in mask
+    if (validKeypoints >= pose.keypoints.length / 4) {
+      filteredPoses.push(pose);
+    }
+  }
+
+  return filteredPoses;
+}
+
+function gotPoses(results) {
+  let smoothedResults = smoothPoses(results, smoothingFactor);
+  let filteredResults = filterPosesByMask(smoothedResults);
+  poses = filteredResults;
+  previousPoses = JSON.parse(JSON.stringify(smoothedResults));
+
+  // Update all visualizers with new poses
+  for (let viz of visualizers1) {
+    viz.updatePoses(poses);
+  }
+  for (let viz of visualizers2) {
+    viz.updatePoses(poses);
+  }
+
+  if (schlemerLineLength === 0 && poses.length > 0) {
+    calculateSchlemerLineLength();
+  }
+}
+
+function calculateVideoConfig(canvasWidth, canvasHeight) {
+  // Get the original video source dimensions
+  let videoSrcWidth, videoSrcHeight;
+  if (video && video.elt && video.elt.videoWidth > 0) {
+    videoSrcWidth = video.elt.videoWidth;
+    videoSrcHeight = video.elt.videoHeight;
+  } else {
+    // Fallback to display dimensions if video not loaded yet
+    videoSrcWidth = video ? video.width : 640;
+    videoSrcHeight = video ? video.height : 480;
+  }
+
+  // Calculate proper video sizing for canvas
+  let videoAspectRatio = videoSrcWidth / videoSrcHeight;
+  let canvasAspectRatio = canvasWidth / canvasHeight;
+
+  let drawWidth, drawHeight;
+
+  if (videoAspectRatio > canvasAspectRatio) {
+    drawHeight = canvasHeight;
+    drawWidth = canvasHeight * videoAspectRatio;
+  } else {
+    drawWidth = canvasWidth;
+    drawHeight = canvasWidth / videoAspectRatio;
+  }
+
+  // Center the video on canvas
+  let offsetX = (canvasWidth - drawWidth) / 2;
+  let offsetY = (canvasHeight - drawHeight) / 2;
+
+  // Scale from video source to canvas display
+  let scaleX = drawWidth / videoSrcWidth;
+  let scaleY = drawHeight / videoSrcHeight;
+
+  return {
+    drawWidth,
+    drawHeight,
+    offsetX,
+    offsetY,
+    scaleX,
+    scaleY,
+    mirrorMode,
+    maskEnabled,
+    maskPoints
+  };
+}
+
 function draw() {
   background(0);
 
@@ -133,14 +359,16 @@ function draw() {
     // Draw Canvas 1
     if (canvas1Visible && viz1) {
       canvas1.background(0);
-      viz1.draw(canvas1.width, canvas1.height);
+      let videoConfig1 = calculateVideoConfig(canvas1.width, canvas1.height);
+      viz1.draw(canvas1.width, canvas1.height, poses, showVideo, video, videoConfig1);
       quadMap1.displayTexture(canvas1);
     }
 
     // Draw Canvas 2
     if (canvas2Visible && viz2) {
       canvas2.background(0);
-      viz2.draw(canvas2.width, canvas2.height);
+      let videoConfig2 = calculateVideoConfig(canvas2.width, canvas2.height);
+      viz2.draw(canvas2.width, canvas2.height, poses, showVideo, video, videoConfig2);
       quadMap2.displayTexture(canvas2);
     }
   }
@@ -219,7 +447,7 @@ function keyPressed() {
     if (key === "1" || keyCode === 49) {
       viz1Index = (viz1Index + 1) % visualizers1.length;
       viz1 = visualizers1[viz1Index];
-      const names = ["OSKAR", "Placeholder 1", "Placeholder 2"];
+      const names = ["White", "Red", "Blue"];
       console.log(`✓ Canvas 1 → ${names[viz1Index]}`);
       return false;
     }
@@ -227,84 +455,49 @@ function keyPressed() {
     if (key === "2" || keyCode === 50) {
       viz2Index = (viz2Index + 1) % visualizers2.length;
       viz2 = visualizers2[viz2Index];
-      const names = ["OSKAR", "Placeholder 1", "Placeholder 2"];
+      const names = ["White", "Red", "Blue"];
       console.log(`✓ Canvas 2 → ${names[viz2Index]}`);
       return false;
     }
   }
 
-  // OSKAR controls - collect unique PoseVisualizer instances
+  // Video background toggle
   if (key === "b" || key === "B") {
-    const poseInstances = new Set();
-    if (
-      viz1 instanceof PoseVisualizer ||
-      (viz1 && viz1.showVideo !== undefined)
-    )
-      poseInstances.add(sharedPoseViz);
-    if (
-      viz2 instanceof PoseVisualizer ||
-      (viz2 && viz2.showVideo !== undefined)
-    )
-      poseInstances.add(sharedPoseViz);
-
-    poseInstances.forEach((viz) => {
-      viz.showVideo = !viz.showVideo;
-      console.log("✓ Video BG:", viz.showVideo ? "ON" : "OFF");
-    });
+    showVideo = !showVideo;
+    console.log("✓ Video BG:", showVideo ? "ON" : "OFF");
     return false;
   }
 
   if (key === "t" || key === "T") {
-    const poseInstances = new Set();
-    if (
-      viz1 instanceof PoseVisualizer ||
-      (viz1 && viz1.showSchlemerTrail !== undefined)
-    )
-      poseInstances.add(sharedPoseViz);
-    if (
-      viz2 instanceof PoseVisualizer ||
-      (viz2 && viz2.showSchlemerTrail !== undefined)
-    )
-      poseInstances.add(sharedPoseViz);
-
-    poseInstances.forEach((viz) => {
+    // Toggle trail for all visualizers
+    for (let viz of visualizers1) {
       viz.showSchlemerTrail = !viz.showSchlemerTrail;
       if (!viz.showSchlemerTrail) {
         viz.trailHistory = [];
         viz.trailFrameCounter = 0;
       }
-      console.log("✓ Trail:", viz.showSchlemerTrail ? "ON" : "OFF");
-    });
+    }
+    for (let viz of visualizers2) {
+      viz.showSchlemerTrail = !viz.showSchlemerTrail;
+      if (!viz.showSchlemerTrail) {
+        viz.trailHistory = [];
+        viz.trailFrameCounter = 0;
+      }
+    }
+    console.log("✓ Trail:", visualizers1[0].showSchlemerTrail ? "ON" : "OFF");
     return false;
   }
 
   if (key === "r" || key === "R") {
-    const poseInstances = new Set();
-    if (
-      viz1 instanceof PoseVisualizer ||
-      (viz1 && viz1.calculateSchlemerLineLength)
-    )
-      poseInstances.add(sharedPoseViz);
-    if (
-      viz2 instanceof PoseVisualizer ||
-      (viz2 && viz2.calculateSchlemerLineLength)
-    )
-      poseInstances.add(sharedPoseViz);
-
-    poseInstances.forEach((viz) => {
-      viz.calculateSchlemerLineLength();
-      viz.configureSchlemerConnections();
-      console.log("✓ Calibrated");
-    });
+    calculateSchlemerLineLength();
+    console.log("✓ Calibrated");
     return false;
   }
 
   // Mirror mode toggle
   if (key === "m" || key === "M") {
-    if (sharedPoseViz) {
-      sharedPoseViz.mirrorMode = !sharedPoseViz.mirrorMode;
-      console.log("✓ Mirror mode:", sharedPoseViz.mirrorMode ? "ON" : "OFF");
-    }
+    mirrorMode = !mirrorMode;
+    console.log("✓ Mirror mode:", mirrorMode ? "ON" : "OFF");
     return false;
   }
 
@@ -316,35 +509,29 @@ function keyPressed() {
 
   // Enable/disable mask
   if (key === "e" || key === "E") {
-    if (sharedPoseViz) {
-      sharedPoseViz.maskEnabled = !sharedPoseViz.maskEnabled;
-      saveDetectionMask();
-      console.log("✓ Mask enabled:", sharedPoseViz.maskEnabled ? "ON" : "OFF");
-    }
+    maskEnabled = !maskEnabled;
+    saveDetectionMask();
+    console.log("✓ Mask enabled:", maskEnabled ? "ON" : "OFF");
     return false;
   }
 
   // Clear mask
   if (key === "x" || key === "X") {
-    if (sharedPoseViz) {
-      sharedPoseViz.maskPoints = [];
-      sharedPoseViz.maskEnabled = false;
-      saveDetectionMask();
-      console.log("✓ Mask cleared");
-    }
+    maskPoints = [];
+    maskEnabled = false;
+    saveDetectionMask();
+    console.log("✓ Mask cleared");
     return false;
   }
 
   // Recalibrate Schlemmer stick lengths
   if (key === "k" || key === "K") {
-    if (sharedPoseViz) {
-      sharedPoseViz.schlemerLineLength = 0; // Reset to force recalculation
-      sharedPoseViz.calculateSchlemerLineLength();
-      console.log(
-        "✓ Schlemer stick length recalibrated:",
-        sharedPoseViz.schlemerLineLength.toFixed(1)
-      );
-    }
+    schlemerLineLength = 0; // Reset to force recalculation
+    calculateSchlemerLineLength();
+    console.log(
+      "✓ Schlemer stick length recalibrated:",
+      schlemerLineLength.toFixed(1)
+    );
     return false;
   }
 
@@ -381,45 +568,41 @@ function toggleMaskEditMode() {
 }
 
 function drawMaskEditor() {
-  if (!sharedPoseViz || !sharedPoseViz.video || !sharedPoseViz.maskPoints)
+  if (!video)
     return;
 
-  // Use CANVAS dimensions (1280x720), not screen dimensions!
-  let canvasWidth = 1280;
-  let canvasHeight = 720;
+  // Use SCREEN dimensions for fullscreen mask editing
+  let screenWidth = width;
+  let screenHeight = height;
 
-  let video = sharedPoseViz.video;
+  let videoSource = video;
   let videoSrcWidth =
-    video.elt && video.elt.videoWidth > 0 ? video.elt.videoWidth : video.width;
+    videoSource.elt && videoSource.elt.videoWidth > 0 ? videoSource.elt.videoWidth : videoSource.width;
   let videoSrcHeight =
-    video.elt && video.elt.videoHeight > 0
-      ? video.elt.videoHeight
-      : video.height;
+    videoSource.elt && videoSource.elt.videoHeight > 0
+      ? videoSource.elt.videoHeight
+      : videoSource.height;
 
-  // Calculate video sizing to fit CANVAS (same as what PoseVisualizer does)
+  // Calculate video sizing to fit SCREEN
   let videoAspectRatio = videoSrcWidth / videoSrcHeight;
-  let canvasAspectRatio = canvasWidth / canvasHeight;
+  let screenAspectRatio = screenWidth / screenHeight;
 
   let drawWidth, drawHeight;
-  if (videoAspectRatio > canvasAspectRatio) {
-    drawHeight = canvasHeight;
-    drawWidth = canvasHeight * videoAspectRatio;
+  if (videoAspectRatio > screenAspectRatio) {
+    drawHeight = screenHeight;
+    drawWidth = screenHeight * videoAspectRatio;
   } else {
-    drawWidth = canvasWidth;
-    drawHeight = canvasWidth / videoAspectRatio;
+    drawWidth = screenWidth;
+    drawHeight = screenWidth / videoAspectRatio;
   }
 
-  // Center within canvas
-  let videoOffsetX = (canvasWidth - drawWidth) / 2;
-  let videoOffsetY = (canvasHeight - drawHeight) / 2;
+  // Center within screen
+  let videoOffsetX = (screenWidth - drawWidth) / 2;
+  let videoOffsetY = (screenHeight - drawHeight) / 2;
 
-  // Scale from video source to canvas display
+  // Scale from video source to screen display
   let scaleX = drawWidth / videoSrcWidth;
   let scaleY = drawHeight / videoSrcHeight;
-
-  // Center the canvas on screen
-  let screenOffsetX = (width - canvasWidth) / 2;
-  let screenOffsetY = (height - canvasHeight) / 2;
 
   // Switch to 2D rendering for mask editor
   push();
@@ -427,40 +610,42 @@ function drawMaskEditor() {
   // Reset any WEBGL transforms
   translate(-width / 2, -height / 2);
 
-  // Move to centered canvas position
-  translate(screenOffsetX, screenOffsetY);
-
-  // Draw black background for canvas area
+  // Draw black background for full screen
   fill(0);
   noStroke();
-  rect(0, 0, canvasWidth, canvasHeight);
+  rect(0, 0, screenWidth, screenHeight);
 
-  // Draw the video at canvas size
-  image(sharedPoseViz.video, videoOffsetX, videoOffsetY, drawWidth, drawHeight);
+  // Apply mirror mode if enabled
+  if (mirrorMode) {
+    translate(screenWidth, 0);
+    scale(-1, 1);
+  }
+
+  // Draw the video fullscreen
+  image(videoSource, videoOffsetX, videoOffsetY, drawWidth, drawHeight);
 
   // Draw mask polygon in video coordinates (scaled to canvas display)
-  if (sharedPoseViz.maskPoints.length > 0) {
+  if (maskPoints.length > 0) {
     // Draw filled polygon
     fill(0, 255, 0, 50);
     stroke(0, 255, 0);
     strokeWeight(2);
     beginShape();
-    for (let pt of sharedPoseViz.maskPoints) {
+    for (let pt of maskPoints) {
       vertex(pt.x * scaleX + videoOffsetX, pt.y * scaleY + videoOffsetY);
     }
     endShape(CLOSE);
 
     // Draw control points
     // After translate(-width/2, -height/2), we're in screen space (0,0 = top-left)
-    // After translate(screenOffsetX, screenOffsetY), canvas starts at (screenOffsetX, screenOffsetY)
-    // So mouse in canvas-local coords is just: mouse - screenOffset
-    let localMouseX = mouseX - screenOffsetX;
-    let localMouseY = mouseY - screenOffsetY;
+    // Mouse coordinates are already in screen space
+    let localMouseX = mouseX;
+    let localMouseY = mouseY;
 
     // Check if mouse is near any point
     let hoveredPoint = -1;
-    for (let i = 0; i < sharedPoseViz.maskPoints.length; i++) {
-      let pt = sharedPoseViz.maskPoints[i];
+    for (let i = 0; i < maskPoints.length; i++) {
+      let pt = maskPoints[i];
       let canvasX = pt.x * scaleX + videoOffsetX;
       let canvasY = pt.y * scaleY + videoOffsetY;
       let d = dist(localMouseX, localMouseY, canvasX, canvasY);
@@ -470,8 +655,8 @@ function drawMaskEditor() {
       }
     }
 
-    for (let i = 0; i < sharedPoseViz.maskPoints.length; i++) {
-      let pt = sharedPoseViz.maskPoints[i];
+    for (let i = 0; i < maskPoints.length; i++) {
+      let pt = maskPoints[i];
       let canvasX = pt.x * scaleX + videoOffsetX;
       let canvasY = pt.y * scaleY + videoOffsetY;
 
@@ -517,38 +702,35 @@ function drawMaskEditor() {
 
   // Store metrics for mouse interaction
   window.maskEditorMetrics = {
-    canvasWidth,
-    canvasHeight,
+    screenWidth,
+    screenHeight,
     videoOffsetX,
     videoOffsetY,
     scaleX,
     scaleY,
-    screenOffsetX,
-    screenOffsetY,
+    mirrorMode,
   };
 }
 
 function mousePressed() {
-  if (!maskEditMode || !sharedPoseViz || !window.maskEditorMetrics) return;
+  if (!maskEditMode || !window.maskEditorMetrics) return;
 
   let {
     videoOffsetX,
     videoOffsetY,
     scaleX,
     scaleY,
-    screenOffsetX,
-    screenOffsetY,
   } = window.maskEditorMetrics;
 
-  // Convert mouse position to canvas-local coordinates
-  let localMouseX = mouseX - screenOffsetX;
-  let localMouseY = mouseY - screenOffsetY;
+  // Mouse coordinates are already in screen space
+  let localMouseX = mouseX;
+  let localMouseY = mouseY;
 
   // Check if Shift is held for dragging mode
   if (isShiftDown) {
     // Check if clicking on existing point to drag
-    for (let i = 0; i < sharedPoseViz.maskPoints.length; i++) {
-      let pt = sharedPoseViz.maskPoints[i];
+    for (let i = 0; i < maskPoints.length; i++) {
+      let pt = maskPoints[i];
       let canvasX = pt.x * scaleX + videoOffsetX;
       let canvasY = pt.y * scaleY + videoOffsetY;
       let d = dist(localMouseX, localMouseY, canvasX, canvasY);
@@ -563,38 +745,36 @@ function mousePressed() {
     // Add new point in VIDEO coordinates (convert from canvas coordinates)
     let videoX = (localMouseX - videoOffsetX) / scaleX;
     let videoY = (localMouseY - videoOffsetY) / scaleY;
-    sharedPoseViz.maskPoints.push({ x: videoX, y: videoY });
+    maskPoints.push({ x: videoX, y: videoY });
     console.log(
       `✓ Mask point added at video coords (${videoX.toFixed(
         0
-      )}, ${videoY.toFixed(0)}) - Total: ${sharedPoseViz.maskPoints.length}`
+      )}, ${videoY.toFixed(0)}) - Total: ${maskPoints.length}`
     );
     return false;
   }
 }
 
 function mouseDragged() {
-  if (!maskEditMode || !sharedPoseViz || !window.maskEditorMetrics) return;
+  if (!maskEditMode || !window.maskEditorMetrics) return;
 
   let {
     videoOffsetX,
     videoOffsetY,
     scaleX,
     scaleY,
-    screenOffsetX,
-    screenOffsetY,
   } = window.maskEditorMetrics;
 
-  // Convert mouse position to canvas-local coordinates
-  let localMouseX = mouseX - screenOffsetX;
-  let localMouseY = mouseY - screenOffsetY;
+  // Mouse coordinates are already in screen space
+  let localMouseX = mouseX;
+  let localMouseY = mouseY;
 
   // Drag selected point in VIDEO coordinates
   if (selectedMaskPoint !== -1 && isShiftDown) {
     let videoX = (localMouseX - videoOffsetX) / scaleX;
     let videoY = (localMouseY - videoOffsetY) / scaleY;
-    sharedPoseViz.maskPoints[selectedMaskPoint].x = videoX;
-    sharedPoseViz.maskPoints[selectedMaskPoint].y = videoY;
+    maskPoints[selectedMaskPoint].x = videoX;
+    maskPoints[selectedMaskPoint].y = videoY;
     return false;
   }
 }
@@ -608,24 +788,26 @@ function mouseReleased() {
 }
 
 function saveDetectionMask() {
-  if (!sharedPoseViz) return;
-
   const maskData = {
-    points: sharedPoseViz.maskPoints,
-    enabled: sharedPoseViz.maskEnabled,
+    points: maskPoints,
+    enabled: maskEnabled,
   };
   localStorage.setItem("oskar-detection-mask", JSON.stringify(maskData));
   console.log("✓ Mask saved to localStorage");
 }
 
 function loadDetectionMask() {
-  if (!sharedPoseViz) return;
-
   const saved = localStorage.getItem("oskar-detection-mask");
   if (saved) {
     try {
       const maskData = JSON.parse(saved);
-      sharedPoseViz.loadMask(maskData);
+      if (maskData) {
+        maskPoints = maskData.points || [];
+        maskEnabled = maskData.enabled || false;
+        console.log(
+          `✓ Mask loaded: ${maskPoints.length} points, enabled: ${maskEnabled}`
+        );
+      }
     } catch (e) {
       console.error("Error loading mask:", e);
     }

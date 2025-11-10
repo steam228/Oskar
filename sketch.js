@@ -50,6 +50,10 @@ let selectedMaskPoint = -1;
 // Track shift key state for mouse interactions
 let isShiftDown = false;
 
+// Sensor simulation mode
+let simulationMode = false;
+let simulationSensor = null;
+
 // Sensor Data Class (simplified from OskarBit)
 class SensorStream {
   constructor(id) {
@@ -194,6 +198,7 @@ async function setup() {
   console.log("\n=== Projection Mapping ===");
   console.log("C - Toggle calibration mode (drag corners to map)");
   console.log("S - Save current mapping");
+  console.log("P - Connect sensor port");
   console.log("L - Load saved mapping");
   console.log("F - Toggle fullscreen");
   console.log("\n=== Canvas Visibility ===");
@@ -213,8 +218,10 @@ async function setup() {
   );
   console.log("E - Enable/disable mask");
   console.log("X - Clear mask");
-  console.log("\n=== Springy Controls ===");
-  console.log("+ / - - Increase/decrease elasticity (when Springy is active)");
+  console.log("\n=== Sensor Effects ===");
+  console.log("XY Motion - Controls trail frequency and count");
+  console.log("Z Motion - Controls springy line elasticity (auto)");
+  console.log("+ / - - Manual elasticity override (when Springy is active)");
 
   console.log("\n✓ System initialized");
 }
@@ -513,24 +520,65 @@ function updateTrailParameters() {
     }
   }
   
-  if (mostDynamicSensor) {
-    // X values affect trail interval (how often trail marks are created)
-    // Higher X = faster trail capture
-    let xInfluence = map(Math.abs(mostDynamicSensor.x - mostDynamicSensor.baseX), 0, 2000, 1, 10);
-    sensorTrailInterval = Math.max(1, Math.floor(8 - xInfluence)); // 1-7 range
+  if (mostDynamicSensor && maxMotion > 0) {
+    // Calculate combined motion intensity from X and Y
+    let xMotion = Math.abs(mostDynamicSensor.x - mostDynamicSensor.baseX);
+    let yMotion = Math.abs(mostDynamicSensor.y - mostDynamicSensor.baseY);
+    let zMotion = Math.abs(mostDynamicSensor.z - mostDynamicSensor.baseZ);
     
-    // Y values affect trail count (how many trail marks persist)
-    // Higher Y = more trails
-    let yInfluence = map(Math.abs(mostDynamicSensor.y - mostDynamicSensor.baseY), 0, 2000, 1, 5);
-    sensorTrailCount = Math.floor(30 + yInfluence * 30); // 30-180 range
+    // Combined XY motion for trail control (0-5000+ range)
+    let combinedMotion = Math.sqrt(xMotion * xMotion + yMotion * yMotion);
+    
+    // Trail interval: No motion = no trails, high motion = very fast trails
+    if (combinedMotion < 100) {
+      sensorTrailInterval = 999; // Effectively no trails
+    } else {
+      // Map motion to trail interval: 100-3000+ motion -> 1-8 interval
+      sensorTrailInterval = Math.max(1, Math.floor(map(combinedMotion, 100, 3000, 8, 1)));
+    }
+    
+    // Trail count: More motion = way more trails
+    if (combinedMotion < 100) {
+      sensorTrailCount = 5; // Almost no trails
+    } else {
+      // Map motion to trail count: 100-3000+ motion -> 20-300 trails
+      sensorTrailCount = Math.floor(map(combinedMotion, 100, 3000, 20, 300));
+    }
+    
+    // Z motion affects springiness (0.2 to 2.5 elasticity range)
+    let zInfluence = map(zMotion, 0, 2000, 0.2, 2.5);
     
     // Update all visualizers with new trail parameters
     for (let viz of visualizers1) {
       if (viz.updateTrailParameters) {
         viz.updateTrailParameters(sensorTrailInterval, sensorTrailCount);
       }
+      // Update springiness for springy visualizers
+      if (viz instanceof SpringyBlueSchlemerVisualizer) {
+        viz.setElasticity(zInfluence);
+      }
     }
     for (let viz of visualizers2) {
+      if (viz.updateTrailParameters) {
+        viz.updateTrailParameters(sensorTrailInterval, sensorTrailCount);
+      }
+      // Update springiness for springy visualizers
+      if (viz instanceof SpringyBlueSchlemerVisualizer) {
+        viz.setElasticity(zInfluence);
+      }
+    }
+    
+    // Debug output (remove in final version)
+    if (frameCount % 60 === 0) { // Log once per second
+      console.log(`Motion: XY=${combinedMotion.toFixed(0)} Z=${zMotion.toFixed(0)} | Trail: int=${sensorTrailInterval} count=${sensorTrailCount} | Elastic=${zInfluence.toFixed(1)}`);
+    }
+  } else {
+    // No motion detected - minimal trails
+    sensorTrailInterval = 999;
+    sensorTrailCount = 5;
+    
+    // Update all visualizers
+    for (let viz of [...visualizers1, ...visualizers2]) {
       if (viz.updateTrailParameters) {
         viz.updateTrailParameters(sensorTrailInterval, sensorTrailCount);
       }
@@ -538,11 +586,43 @@ function updateTrailParameters() {
   }
 }
 
+function enableSensorSimulation() {
+  simulationMode = true;
+  simulationSensor = new SensorStream(1);
+  // Set baseline values manually for simulation
+  simulationSensor.baseX = 0;
+  simulationSensor.baseY = 0;
+  simulationSensor.baseZ = 0;
+  simulationSensor.calibrating = false;
+  sensorData[1] = simulationSensor;
+  console.log("✓ Simulation mode enabled - move mouse to test trails");
+  console.log("  Mouse X/Y = sensor motion, Mouse wheel = Z motion");
+}
+
+function updateSimulation() {
+  if (!simulationMode || !simulationSensor) return;
+  
+  // Use mouse position as sensor input
+  let centerX = width / 2;
+  let centerY = height / 2;
+  
+  // Map mouse position to sensor values
+  let x = map(mouseX, 0, width, -1000, 1000);
+  let y = map(mouseY, 0, height, -1000, 1000);
+  let z = sin(millis() * 0.01) * 500; // Oscillating Z for demo
+  
+  simulationSensor.update(x, y, z);
+}
+
 function draw() {
   background(0);
 
-  // Read sensor data
-  readSensorData();
+  // Read sensor data or update simulation
+  if (simulationMode) {
+    updateSimulation();
+  } else {
+    readSensorData();
+  }
   updateTrailParameters();
 
   // If in mask edit mode, show fullscreen unmapped video with mask editor
@@ -617,6 +697,44 @@ function keyPressed() {
     if (key === "s" || key === "S") {
       pMapper.save("map.json");
       console.log("✓ Mapping saved");
+      return false;
+    }
+    
+    if (key === "p" || key === "P") {
+      // P = Connect sensor Port OR enable simulation
+      if (typeof createSerial === 'undefined') {
+        console.log("⚠ Serial not available - enabling sensor simulation mode");
+        enableSensorSimulation();
+        return false;
+      }
+      
+      if (!sensorPort) {
+        try {
+          sensorPort = createSerial();
+        } catch (e) {
+          console.log("⚠ Cannot create serial port - enabling sensor simulation mode");
+          enableSensorSimulation();
+          return false;
+        }
+      }
+      
+      if (sensorPort.opened()) {
+        console.log("✓ Sensors already connected");
+        return false;
+      }
+      
+      // Try to find and connect to an available port
+      let availablePorts = usedSerialPorts();
+      console.log("Available serial ports:", availablePorts);
+      
+      if (availablePorts.length > 0) {
+        sensorPort.open(availablePorts[0], SENSOR_BAUDRATE);
+        console.log(`✓ Attempting connection to ${availablePorts[0]}...`);
+      } else {
+        // No used ports, try to open port selection dialog
+        sensorPort.open(SENSOR_BAUDRATE);
+        console.log("✓ Opening port selection dialog...");
+      }
       return false;
     }
   }

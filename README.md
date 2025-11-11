@@ -1,6 +1,6 @@
 # OSKAR
 
-**Interactive Body Pose Visualization Installation**
+**Interactive Body Pose Visualization Installation with Sensor Integration**
 
 Created by **Rita Olivença** and **André Rocha**  
 For **Periphera Festival 2025** | Trafaria, Almada, Portugal  
@@ -10,76 +10,100 @@ For **Periphera Festival 2025** | Trafaria, Almada, Portugal
 
 ## Overview
 
-OSKAR uses computer vision and pose detection to create abstract visualizations of human movement. Body movements are captured through a webcam and rendered as stylized "Schlemer sticks" — geometric lines inspired by Oskar Schlemmer's Bauhaus theater work.
+OSKAR uses computer vision and pose detection to create abstract visualizations of human movement. Body movements are captured through a webcam and rendered as stylized "Schlemer sticks" — geometric lines inspired by Oskar Schlemmer's Bauhaus theater work. The system integrates with micro:bit sensors for dynamic trail control.
 
-**Technologies:** p5.js, ml5.js, MoveNet pose estimation, dommapper projection mapping
+**Technologies:** p5.js, ml5.js, MoveNet pose estimation, p5.mapper projection mapping, p5.webserial
 
 **Key Features:**
 - Dual-canvas architecture with independent projection mapping
-- Real-time pose detection (17 body keypoints)
-- Custom Schlemmer stick rendering (10 fixed connection lines)
-- Motion trail/drag effect with dynamic fading
+- Real-time pose detection (17 body keypoints) 
+- Three distinct visualizer types with configurable behaviors
+- Sensor-responsive trail system via micro:bit integration
+- Physics-based springy line rendering with elasticity control
 - Detection mask for selective area tracking
 - Mirror mode toggle
 - Fullscreen support
 
 ---
 
-## Keyboard Controls
+## Visualizer Types
 
-### Canvas Management
+OSKAR offers three distinct visualization modes:
+
+| Type | Description | Trail Behavior |
+|------|-------------|----------------|
+| **White+Trail** | Classic white Schlemmer sticks | Sensor-responsive trails |
+| **Clear** | Pure white sticks, always clean | No trails (immune to sensors) |
+| **Springy+Trail** | Physics-based white bezier curves | Sensor-responsive trails + elasticity |
+
+---
+
+## Complete Keyboard Controls
 
 | Key | Function |
 |-----|----------|
-| **1** | Toggle projection mapping for Canvas 1 |
-| **2** | Toggle projection mapping for Canvas 2 |
+| **Projection Mapping** |
+| **C** | Toggle calibration mode (drag corners to map) |
+| **S** | Save current mapping |
+| **L** | Load saved mapping |
+| **F** | Toggle fullscreen |
+| **Canvas Visibility** |
 | **Shift+1** | Show/Hide Canvas 1 |
 | **Shift+2** | Show/Hide Canvas 2 |
-| **Ctrl+1** | Reset Canvas 1 mapping to default |
-| **Ctrl+2** | Reset Canvas 2 mapping to default |
-| **Alt+1** | Cycle visualizers on Canvas 1 (OSKAR → Placeholder 1 → Placeholder 2) |
-| **Alt+2** | Cycle visualizers on Canvas 2 (OSKAR → Placeholder 1 → Placeholder 2) |
-
-### OSKAR Visualizer
-
-| Key | Function |
-|-----|----------|
+| **Visualizer Selection** |
+| **Alt+1** | Cycle Canvas 1 (White+Trail → Clear → Springy+Trail) |
+| **Alt+2** | Cycle Canvas 2 (White+Trail → Clear → Springy+Trail) |
+| **Pose Controls** |
 | **B** | Toggle video background |
-| **T** | Toggle trail/drag effect |
-| **K** | Recalibrate Schlemmer stick length (stand in T-pose) |
-| **M** | Toggle mirror mode (flip video + pose detection) |
-
-### Detection Mask
-
-| Key | Function |
-|-----|----------|
+| **T** | Toggle trail effect |
+| **R** | Recalibrate Schlemmer stick length (stand in T-pose) |
+| **K** | Recalibrate Schlemmer stick length (alternative) |
+| **M** | Toggle mirror mode |
+| **Detection Mask** |
 | **A** | Toggle mask editing mode |
 | **E** | Enable/disable mask filtering |
 | **X** | Clear mask completely |
-| **Click** | Add mask point (in edit mode) |
-| **Shift+Drag** | Move mask point (in edit mode) |
-
-### Projection Mapping
-
-| Key | Function |
-|-----|----------|
-| **C** | Toggle calibration mode |
-| **F** | Toggle fullscreen |
-| **L** | Load saved mapping |
-| **S** | Save mapping to file |
-
-### General
-
-| Action | Function |
-|--------|----------|
+| **Sensor Integration** |
+| **P** | Connect sensor port / Enable simulation mode |
+| **+** | Increase springy line elasticity |
+| **-** | Decrease springy line elasticity |
+| **Mouse Actions** |
+| **Click** | Add mask point (in mask edit mode) |
+| **Shift+Drag** | Move mask point (in mask edit mode) |
 | **Double-click** | Toggle fullscreen |
+
+---
+
+## Sensor Integration (OskarBit System)
+
+### Hardware Setup
+1. **Micro:bit receiver** connected via USB (runs receiver code)
+2. **1-6 micro:bit senders** with accelerometer data (sensor IDs 1-6)
+3. **Serial communication** at 115200 baud rate
+
+### Sensor Effects
+- **XY Motion** (combined) controls trail frequency and persistence
+  - No motion = no trails
+  - High motion = dramatic trail effects (up to 300 trail frames)
+- **Z Motion** automatically controls springy line elasticity (0.2-2.5 range)
+- **Most dynamic sensor** wins (highest motion level controls effects)
+
+### Connection
+1. **Press P** to connect sensor port
+2. **Select micro:bit port** from browser dialog
+3. **Sensors auto-register** as S1-S6
+4. **Move sensors** to see immediate trail response
+
+### Simulation Mode
+If no sensors available, **Press P** enables mouse simulation:
+- **Mouse position** = XY sensor motion
+- **Automatic Z oscillation** = springiness demo
 
 ---
 
 ## Quick Start
 
 ### Setup
-
 1. **Start a local server:**
    ```bash
    # Python 3
@@ -93,49 +117,35 @@ OSKAR uses computer vision and pose detection to create abstract visualizations 
 
 3. **Allow camera access** when prompted
 
-4. **Stand in T-pose** and press **K** to calibrate stick lengths
+4. **Stand in T-pose** and press **R** to calibrate stick lengths
 
 ### Installation Workflow
-
 **For projection installations:**
 
 1. Set up your projector(s)
-2. Press **Alt+1** / **Alt+2** to assign visualizers to canvases
-3. Press **1** to map Canvas 1 to projection surface (drag corners)
-4. Press **2** to map Canvas 2 to second surface (if using dual projection)
+2. Press **Alt+1** / **Alt+2** to select visualizers for each canvas
+3. Press **C** to enter calibration mode, drag corners to map projection surface
+4. Press **C** again to exit calibration
 5. Press **A** to define detection mask (optional - limits tracking area)
-6. Press **Double-click** for fullscreen
+6. Press **P** to connect sensors (optional - for dynamic trails)
+7. Press **F** for fullscreen
 
 ---
 
 ## Dual Canvas System
 
-OSKAR supports **two independent canvases** for dual-projection or flexible setups:
+OSKAR supports **two independent canvases** for dual-projection setups:
 
-- **Canvas 1:** Primary canvas (top-left) - starts at 40% scale, 50×50px
-- **Canvas 2:** Secondary canvas (top-right) - starts at 40% scale, 600×50px
-
-Each canvas can display:
-- OSKAR pose detection visualizer
-- Placeholder visualizer 1
-- Placeholder visualizer 2
-
-**Switching visualizers:** Use **Alt+1** or **Alt+2** to cycle through options
-
-**Both canvases support independent projection mapping** with separate localStorage persistence.
+- **Canvas 1 & 2:** Each can display any of the three visualizer types
+- **Independent mapping:** Each canvas maps separately to projection surfaces
+- **Shared sensors:** All visualizers respond to the same sensor data
+- **Clear visualizer exception:** Always immune to sensor trail effects
 
 ### Mapping Workflow
-
-Since only one canvas can be mapped at a time:
-
-1. Press **1** → map Canvas 1 (red guides appear)
-2. Drag corner handles to match projection surface
-3. Press **1** again to exit
-4. Press **2** → map Canvas 2
-5. Drag corner handles for second surface
-6. Press **2** again to exit
-
-Both mappings persist between sessions.
+1. Press **C** → enter calibration mode (corners become draggable)
+2. **Drag 4 corners** to match your projection surface(s)
+3. Press **C** again → exit calibration mode
+4. Settings automatically saved to localStorage
 
 ---
 
@@ -144,60 +154,56 @@ Both mappings persist between sessions.
 Define a polygon to **limit pose detection to specific areas** (stage, interaction zone, etc.).
 
 ### How It Works
-
 - **Video clipping:** Video shows only inside polygon
 - **Pose filtering:** Only tracks people with ≥25% of keypoints inside mask
 - **Graphics freedom:** Schlemmer sticks extend freely beyond mask boundary
 - **Persistent:** Saved to localStorage
 
 ### Workflow
-
-1. Press **A** → enter mask edit mode
+1. Press **A** → enter mask edit mode (fullscreen video with overlay)
 2. **Click** to add points (minimum 3 points)
 3. **Shift+Drag** to move existing points
-4. Press **A** again → activate mask
+4. Press **A** again → exit edit mode
 5. Press **E** to toggle mask on/off without clearing
 6. Press **X** to clear mask completely
-
-**Visual feedback:** Green polygon with numbered points (edit mode only), yellow highlight when hovering/dragging
 
 ---
 
 ## Schlemmer Stick System
 
-**10 Fixed Connections** inspired by Oskar Schlemmer's Bauhaus theater work:
+**9 Fixed Connections** inspired by Oskar Schlemmer's Bauhaus theater work:
 
-**Lower-to-Upper (8 lines):**
-1. Right ankle → Right hip
-2. Right ankle → Right wrist  
-3. Right knee → Right wrist
-4. Right knee → Right shoulder
-5. Left ankle → Left hip
-6. Left ankle → Left wrist
-7. Left knee → Left wrist
-8. Left knee → Left shoulder
+1. Right ankle → Right knee
+2. Right knee → Right hip  
+3. Right hip → Right shoulder
+4. Right shoulder → Right wrist
+5. Left ankle → Left knee
+6. Left knee → Left hip
+7. Left hip → Left shoulder
+8. Left shoulder → Left wrist
+9. Left shoulder ↔ Right shoulder (centered line)
 
-**Centered (2 lines):**
-9. Right wrist ↔ Right shoulder (bidirectional)
-10. Left wrist ↔ Left shoulder (bidirectional)
-
-**Calibration:** Press **K** while standing in T-pose to set base stick length
+**Calibration:** Press **R** while standing in T-pose to set base stick length
 
 ---
 
-## Trail/Drag Effect
+## Springy Line Physics
 
-Captures snapshots of Schlemmer sticks at regular intervals, gradually fading out over time.
+The **Springy+Trail** visualizer uses physics simulation for dynamic line behavior:
 
-**Toggle with T key** (affects all OSKAR canvases)
+### Parameters
+- **Spring Strength:** How quickly lines return to rest position
+- **Damping:** How much bounce vs. stiffness
+- **Elasticity:** Overall multiplier (0.1 = very stiff, 3.0 = very bouncy)
 
-**Visual effect:** Ghost images that fade in both opacity and line weight
+### Controls
+- **+/-** keys: Manual elasticity adjustment
+- **Z sensor motion:** Automatic elasticity control (overrides manual)
+- **Real-time response:** Immediate visual feedback
 
 ---
 
 ## Mirror Mode
-
-Two camera configurations:
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
@@ -210,33 +216,13 @@ Two camera configurations:
 
 ## Projection Mapping
 
-Uses [dommapper](https://github.com/ericrav/dommapper) for quad-corner mapping to any surface.
-
-### Setup Process
-
-1. Press **1** or **2** to enter mapping mode
-2. Canvas content hides, red guides appear
-3. Drag 4 corner handles to match projection surface
-4. Press **1** or **2** again to exit
+Uses [p5.mapper](https://github.com/jdeboi/p5.mapper) for quad-corner mapping to any surface.
 
 ### Technical Details
-
 - Canvas resolution: 1280×720 (16:9)
-- Both canvases start at 40% scale for easy corner access
-- Uses CSS matrix3d transforms (hardware accelerated)
-- Canvas 1 saved to: `__dommapper-oskar-canvas1`
-- Canvas 2 saved to: `__dommapper-oskar-canvas2`
-
-### Reset Mapping
-
-**Quick:** Press **Ctrl+1** or **Ctrl+2**
-
-**Manual (console):**
-```javascript
-localStorage.removeItem('__dommapper-oskar-canvas1')
-localStorage.removeItem('__dommapper-oskar-canvas2')
-location.reload()
-```
+- Uses WebGL transforms for hardware acceleration
+- Mapping data saved to localStorage automatically
+- Independent mapping for each canvas
 
 ---
 
@@ -266,8 +252,11 @@ location.reload()
 | | Check browser camera permissions |
 | Pose detection issues | Ensure adequate lighting and full body visibility |
 | | Check if detection mask is active (press **A** to check) |
-| Sticks wrong length | Press **K** while in T-pose to recalibrate |
+| Sticks wrong length | Press **R** while in T-pose to recalibrate |
 | Canvas not showing | Press **Shift+1** or **Shift+2** to toggle visibility |
+| Sensors not connecting | Install micro:bit receiver code, check USB connection |
+| No trail effects | Press **P** to connect sensors or enable simulation |
+| Browser serial issues | Use Chrome/Edge, ensure HTTPS or localhost |
 | Reset all settings | Console: `localStorage.clear()` then `location.reload()` |
 
 ---
@@ -276,21 +265,25 @@ location.reload()
 
 ```
 OSKAR/
-├── index.html                 # Main HTML
-├── sketch.js                  # Dual canvas manager
-├── PoseVisualizer.js          # OSKAR visualizer (Schlemmer + trail)
-├── PlaceholderVisualizer.js   # Simple placeholder
-├── sketchPose.js              # Backup (full-featured version)
-├── style.css                  # Styling
-├── libs/                      # p5.js + ml5.js libraries
-└── README.md                  # This file
+├── index.html                      # Main HTML with library imports
+├── sketch.js                       # Main controller with sensor integration
+├── SchlemerVisualizer.js           # Base visualizer class
+├── WhiteSchlemerVisualizer.js      # White sticks with trails
+├── ClearRedSchlemerVisualizer.js   # Clear white sticks (no trails)
+├── SpringyBlueSchlemerVisualizer.js # Physics-based springy curves
+├── PoseVisualizer.js               # Legacy pose visualizer
+├── sketchPose.js                   # Backup/alternative version  
+├── style.css                       # Styling
+├── libs/                           # Local p5.js + ml5.js libraries
+├── maps/                           # Projection mapping data
+└── README.md                       # This file
 ```
 
 **Architecture:**
-- `sketch.js`: Main controller for dual canvas system and projection mapping
-- `PoseVisualizer.js`: Simplified OSKAR with Schlemmer sticks + trail only
-- `PlaceholderVisualizer.js`: Simple test visualizer
-- Visualizers swap between canvases via **Alt+1** / **Alt+2**
+- `sketch.js`: Main controller with dual canvas system, pose detection, and sensor integration
+- `SchlemerVisualizer.js`: Base class for all visualizer types
+- Three specialized visualizers with different trail behaviors
+- Sensor integration via OskarBit micro:bit system
 
 ---
 
@@ -308,7 +301,8 @@ OSKAR/
 - [p5.js](https://p5js.org/) - Creative coding
 - [ml5.js](https://ml5js.org/) - Machine learning
 - [MoveNet](https://www.tensorflow.org/hub/tutorials/movenet) - Pose detection
-- [dommapper](https://github.com/ericrav/dommapper) - Projection mapping
+- [p5.mapper](https://github.com/jdeboi/p5.mapper) - Projection mapping
+- [p5.webserial](https://github.com/gohai/p5.webserial) - Serial communication
 
 **Artistic Inspiration:**
 - Oskar Schlemmer - Bauhaus Theater & Triadisches Ballett

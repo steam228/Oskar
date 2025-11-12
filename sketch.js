@@ -161,20 +161,20 @@ async function setup() {
 
   // Create visualizers with different colors
   visualizers1 = [
+    new ClearRedSchlemerVisualizer(canvas1),        // Clear red, no trails
     new WhiteSchlemerVisualizer(canvas1),           // White with trails
-    new ClearRedSchlemerVisualizer(canvas1),        // Clear white, no trails
-    new SpringyBlueSchlemerVisualizer(canvas1),     // Springy white curves with trails
+    new SpringyBlueSchlemerVisualizer(canvas1),     // Springy blue curves with trails
   ];
 
   visualizers2 = [
+    new ClearRedSchlemerVisualizer(canvas2),        // Clear red, no trails
     new WhiteSchlemerVisualizer(canvas2),           // White with trails
-    new ClearRedSchlemerVisualizer(canvas2),        // Clear white, no trails
-    new SpringyBlueSchlemerVisualizer(canvas2),     // Springy white curves with trails
+    new SpringyBlueSchlemerVisualizer(canvas2),     // Springy blue curves with trails
   ];
 
   // Set initial visualizers
-  viz1 = visualizers1[viz1Index]; // White
-  viz2 = visualizers2[viz2Index]; // Red
+  viz1 = visualizers1[viz1Index]; // Clear (Red)
+  viz2 = visualizers2[viz2Index]; // White
 
   // Load saved calibration
   pMapper.load("maps/map.json");
@@ -205,8 +205,8 @@ async function setup() {
   console.log("Shift+1 - Show/Hide Canvas 1");
   console.log("Shift+2 - Show/Hide Canvas 2");
   console.log("\n=== Visualizer Controls ===");
-  console.log("Alt+1 - Cycle Canvas 1 (White+Trail, Clear, Springy+Trail)");
-  console.log("Alt+2 - Cycle Canvas 2 (White+Trail, Clear, Springy+Trail)");
+  console.log("Alt+1 - Cycle Canvas 1 (Clear, White+Trail, Springy+Trail)");
+  console.log("Alt+2 - Cycle Canvas 2 (Clear, White+Trail, Springy+Trail)");
   console.log("\n=== OSKAR Controls (when OSKAR is displayed) ===");
   console.log("B - Toggle video background");
   console.log("T - Toggle trail effect");
@@ -759,7 +759,7 @@ function keyPressed() {
     if (key === "1" || keyCode === 49) {
       viz1Index = (viz1Index + 1) % visualizers1.length;
       viz1 = visualizers1[viz1Index];
-      const names = ["White+Trail", "Clear", "Springy+Trail"];
+      const names = ["Clear", "White+Trail", "Springy+Trail"];
       console.log(`✓ Canvas 1 → ${names[viz1Index]}`);
       return false;
     }
@@ -767,7 +767,7 @@ function keyPressed() {
     if (key === "2" || keyCode === 50) {
       viz2Index = (viz2Index + 1) % visualizers2.length;
       viz2 = visualizers2[viz2Index];
-      const names = ["White+Trail", "Clear", "Springy+Trail"];
+      const names = ["Clear", "White+Trail", "Springy+Trail"];
       console.log(`✓ Canvas 2 → ${names[viz2Index]}`);
       return false;
     }

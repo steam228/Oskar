@@ -74,7 +74,8 @@ OSKAR offers three distinct visualization modes:
 
 ---
 
-## Sensor Integration (OskarBit System)
+## [Sensor Integration (OskarBit System)](https://github.com/steam228/OskarBit) 
+
 
 ### Hardware Setup
 1. **Micro:bit receiver** connected via USB (runs receiver code)

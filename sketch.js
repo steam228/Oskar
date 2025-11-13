@@ -42,6 +42,7 @@ let mostDynamicSensor = null;
 // Trail control from sensors
 let sensorTrailInterval = 3;  // Default interval between trail captures
 let sensorTrailCount = 60;    // Default max trail frames
+let sensorInfluenceMultiplier = 1.0;  // Fine-tuning multiplier for sensor influence
 
 // Mask editing
 let maskEditMode = false;
@@ -222,6 +223,7 @@ async function setup() {
   console.log("XY Motion - Controls trail frequency and count");
   console.log("Z Motion - Controls springy line elasticity (auto)");
   console.log("+ / - - Manual elasticity override (when Springy is active)");
+  console.log("UP / DOWN - Adjust sensor influence sensitivity (0.1-3.0x)");
 
   console.log("\n✓ System initialized");
 }
@@ -529,20 +531,23 @@ function updateTrailParameters() {
     // Combined XY motion for trail control (0-5000+ range)
     let combinedMotion = Math.sqrt(xMotion * xMotion + yMotion * yMotion);
     
+    // Apply influence multiplier to reduce sensor responsiveness
+    let adjustedMotion = combinedMotion * sensorInfluenceMultiplier;
+    
     // Trail interval: No motion = no trails, high motion = very fast trails
-    if (combinedMotion < 100) {
+    if (adjustedMotion < 100) {
       sensorTrailInterval = 999; // Effectively no trails
     } else {
       // Map motion to trail interval: 100-3000+ motion -> 1-8 interval
-      sensorTrailInterval = Math.max(1, Math.floor(map(combinedMotion, 100, 3000, 8, 1)));
+      sensorTrailInterval = Math.max(1, Math.floor(map(adjustedMotion, 100, 3000, 8, 1)));
     }
     
     // Trail count: More motion = way more trails
-    if (combinedMotion < 100) {
+    if (adjustedMotion < 100) {
       sensorTrailCount = 5; // Almost no trails
     } else {
       // Map motion to trail count: 100-3000+ motion -> 20-300 trails
-      sensorTrailCount = Math.floor(map(combinedMotion, 100, 3000, 20, 300));
+      sensorTrailCount = Math.floor(map(adjustedMotion, 100, 3000, 20, 300));
     }
     
     // Z motion affects springiness (0.2 to 2.5 elasticity range)
@@ -570,7 +575,7 @@ function updateTrailParameters() {
     
     // Debug output (remove in final version)
     if (frameCount % 60 === 0) { // Log once per second
-      console.log(`Motion: XY=${combinedMotion.toFixed(0)} Z=${zMotion.toFixed(0)} | Trail: int=${sensorTrailInterval} count=${sensorTrailCount} | Elastic=${zInfluence.toFixed(1)}`);
+      console.log(`Motion: XY=${combinedMotion.toFixed(0)} (adj=${adjustedMotion.toFixed(0)}) Z=${zMotion.toFixed(0)} | Trail: int=${sensorTrailInterval} count=${sensorTrailCount} | Elastic=${zInfluence.toFixed(1)} | Influence=${sensorInfluenceMultiplier.toFixed(1)}`);
     }
   } else {
     // No motion detected - minimal trails
@@ -867,6 +872,19 @@ function keyPressed() {
         console.log("✓ Elasticity decreased:", newElasticity.toFixed(1));
       }
     }
+    return false;
+  }
+  
+  // Sensor influence multiplier controls
+  if (keyCode === UP_ARROW) {
+    sensorInfluenceMultiplier = Math.min(sensorInfluenceMultiplier + 0.1, 3.0);
+    console.log("✓ Sensor influence increased:", sensorInfluenceMultiplier.toFixed(1));
+    return false;
+  }
+  
+  if (keyCode === DOWN_ARROW) {
+    sensorInfluenceMultiplier = Math.max(sensorInfluenceMultiplier - 0.1, 0.1);
+    console.log("✓ Sensor influence decreased:", sensorInfluenceMultiplier.toFixed(1));
     return false;
   }
 

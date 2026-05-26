@@ -24,14 +24,12 @@ class SchlemerVisualizer {
   }
 
   draw(canvasWidth, canvasHeight, poses, showVideo, video, videoConfig) {
-    // Use appropriate push based on context
     if (this.pg) {
       this.pg.push();
     } else {
       push();
     }
 
-    // Apply mirror transform first (if enabled in videoConfig)
     if (videoConfig.mirrorMode) {
       if (this.pg) {
         this.pg.translate(canvasWidth, 0);
@@ -42,17 +40,27 @@ class SchlemerVisualizer {
       }
     }
 
-    // Draw video background if requested
+    const hasMaskClip = videoConfig.maskEnabled && videoConfig.maskPoints && videoConfig.maskPoints.length >= 3;
+    if (hasMaskClip) {
+      this.applyMaskClip(videoConfig);
+    }
+
     if (showVideo && video) {
       this.drawVideoBackground(canvasWidth, canvasHeight, video, videoConfig);
     }
 
-    // Draw Schlemer sticks (always on, NEVER clipped by mask)
     this.drawSchlemerSticks(poses, videoConfig.offsetX, videoConfig.offsetY, videoConfig.scaleX, videoConfig.scaleY);
 
-    // Draw Schlemer trail (if enabled, NEVER clipped by mask)
     if (this.showSchlemerTrail) {
       this.drawSchlemerTrail(videoConfig.offsetX, videoConfig.offsetY, videoConfig.scaleX, videoConfig.scaleY);
+    }
+
+    if (hasMaskClip) {
+      if (this.pg) {
+        this.pg.drawingContext.restore();
+      } else {
+        drawingContext.restore();
+      }
     }
 
     if (this.pg) {
@@ -62,56 +70,28 @@ class SchlemerVisualizer {
     }
   }
 
-  drawVideoBackground(canvasWidth, canvasHeight, video, videoConfig) {
-    // Apply clipping ONLY for video (if mask enabled)
-    if (videoConfig.maskEnabled && videoConfig.maskPoints && videoConfig.maskPoints.length >= 3) {
-      if (this.pg) {
-        this.pg.drawingContext.save();
-        this.pg.drawingContext.beginPath();
-        for (let i = 0; i < videoConfig.maskPoints.length; i++) {
-          // Scale mask points from video coords to canvas display coords
-          let px = videoConfig.maskPoints[i].x * videoConfig.scaleX + videoConfig.offsetX;
-          let py = videoConfig.maskPoints[i].y * videoConfig.scaleY + videoConfig.offsetY;
-          if (i === 0) {
-            this.pg.drawingContext.moveTo(px, py);
-          } else {
-            this.pg.drawingContext.lineTo(px, py);
-          }
-        }
-        this.pg.drawingContext.closePath();
-        this.pg.drawingContext.clip();
+  applyMaskClip(videoConfig) {
+    const dc = this.pg ? this.pg.drawingContext : drawingContext;
+    dc.save();
+    dc.beginPath();
+    for (let i = 0; i < videoConfig.maskPoints.length; i++) {
+      let px = videoConfig.maskPoints[i].x * videoConfig.scaleX + videoConfig.offsetX;
+      let py = videoConfig.maskPoints[i].y * videoConfig.scaleY + videoConfig.offsetY;
+      if (i === 0) {
+        dc.moveTo(px, py);
       } else {
-        drawingContext.save();
-        drawingContext.beginPath();
-        for (let i = 0; i < videoConfig.maskPoints.length; i++) {
-          // Scale mask points from video coords to canvas display coords
-          let px = videoConfig.maskPoints[i].x * videoConfig.scaleX + videoConfig.offsetX;
-          let py = videoConfig.maskPoints[i].y * videoConfig.scaleY + videoConfig.offsetY;
-          if (i === 0) {
-            drawingContext.moveTo(px, py);
-          } else {
-            drawingContext.lineTo(px, py);
-          }
-        }
-        drawingContext.closePath();
-        drawingContext.clip();
+        dc.lineTo(px, py);
       }
     }
+    dc.closePath();
+    dc.clip();
+  }
 
-    // Draw video (clipped if mask is enabled)
+  drawVideoBackground(canvasWidth, canvasHeight, video, videoConfig) {
     if (this.pg) {
       this.pg.image(video, videoConfig.offsetX, videoConfig.offsetY, videoConfig.drawWidth, videoConfig.drawHeight);
     } else {
       image(video, videoConfig.offsetX, videoConfig.offsetY, videoConfig.drawWidth, videoConfig.drawHeight);
-    }
-
-    // Restore context after video (end clipping for video)
-    if (videoConfig.maskEnabled && videoConfig.maskPoints && videoConfig.maskPoints.length >= 3) {
-      if (this.pg) {
-        this.pg.drawingContext.restore();
-      } else {
-        drawingContext.restore();
-      }
     }
   }
 

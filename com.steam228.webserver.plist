@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.yourusername.webserver</string>
-    
+    <string>com.steam228.webserver</string>
+
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/yourusername/launch_server.sh</string>
+        <string>/Users/steam228/launch_server.sh</string>
     </array>
     
     <key>RunAtLoad</key>
@@ -31,6 +31,6 @@
     <string>/tmp/webserver_launch.err</string>
     
     <key>WorkingDirectory</key>
-    <string>/Users/yourusername</string>
+    <string>/Users/steam228</string>
 </dict>
 </plist>

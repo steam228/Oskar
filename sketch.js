@@ -14,6 +14,7 @@ let viz1Index = 0;
 let viz2Index = 1;
 let canvas1Visible = true;
 let canvas2Visible = true;
+let noMappingMode = false;  // N to toggle — bypasses quadMap, draws visible canvas fullscreen
 
 // Shared video and pose detection
 let video;
@@ -160,17 +161,18 @@ async function setup() {
   await loadPoseModel();
   calculateSchlemerLineLength();
 
-  // Create visualizers with different colors
   visualizers1 = [
-    new ClearRedSchlemerVisualizer(canvas1),        // Clear red, no trails
-    new WhiteSchlemerVisualizer(canvas1),           // White with trails
-    new SpringyBlueSchlemerVisualizer(canvas1),     // Springy blue curves with trails
+    new ClearRedSchlemerVisualizer(canvas1),
+    new WhiteSchlemerVisualizer(canvas1),
+    new SpringyBlueSchlemerVisualizer(canvas1),
+    new EllipseSchlemerVisualizer(canvas1),
   ];
 
   visualizers2 = [
-    new ClearRedSchlemerVisualizer(canvas2),        // Clear red, no trails
-    new WhiteSchlemerVisualizer(canvas2),           // White with trails
-    new SpringyBlueSchlemerVisualizer(canvas2),     // Springy blue curves with trails
+    new ClearRedSchlemerVisualizer(canvas2),
+    new WhiteSchlemerVisualizer(canvas2),
+    new SpringyBlueSchlemerVisualizer(canvas2),
+    new EllipseSchlemerVisualizer(canvas2),
   ];
 
   // Set initial visualizers
@@ -633,9 +635,29 @@ function draw() {
   // If in mask edit mode, show fullscreen unmapped video with mask editor
   if (maskEditMode) {
     drawMaskEditor();
+  } else if (noMappingMode) {
+    // Single-screen, no projection mapping — draw first visible canvas to fill the window
+    let target = null;
+    if (canvas1Visible && viz1) {
+      canvas1.background(0);
+      let videoConfig1 = calculateVideoConfig(canvas1.width, canvas1.height);
+      viz1.draw(canvas1.width, canvas1.height, poses, showVideo, video, videoConfig1);
+      target = canvas1;
+    } else if (canvas2Visible && viz2) {
+      canvas2.background(0);
+      let videoConfig2 = calculateVideoConfig(canvas2.width, canvas2.height);
+      viz2.draw(canvas2.width, canvas2.height, poses, showVideo, video, videoConfig2);
+      target = canvas2;
+    }
+    if (target) {
+      // WEBGL canvas origin is centered; image() draws from top-left in 2D but is centered in WEBGL by default
+      push();
+      imageMode(CENTER);
+      image(target, 0, 0, width, height);
+      pop();
+    }
   } else {
     // Normal operation - draw mapped canvases
-    // Draw Canvas 1
     if (canvas1Visible && viz1) {
       canvas1.background(0);
       let videoConfig1 = calculateVideoConfig(canvas1.width, canvas1.height);
@@ -643,7 +665,6 @@ function draw() {
       quadMap1.displayTexture(canvas1);
     }
 
-    // Draw Canvas 2
     if (canvas2Visible && viz2) {
       canvas2.background(0);
       let videoConfig2 = calculateVideoConfig(canvas2.width, canvas2.height);
@@ -764,7 +785,7 @@ function keyPressed() {
     if (key === "1" || keyCode === 49) {
       viz1Index = (viz1Index + 1) % visualizers1.length;
       viz1 = visualizers1[viz1Index];
-      const names = ["Clear", "White+Trail", "Springy+Trail"];
+      const names = ["Clear", "White+Trail", "Springy+Trail", "Ellipse"];
       console.log(`✓ Canvas 1 → ${names[viz1Index]}`);
       return false;
     }
@@ -772,7 +793,7 @@ function keyPressed() {
     if (key === "2" || keyCode === 50) {
       viz2Index = (viz2Index + 1) % visualizers2.length;
       viz2 = visualizers2[viz2Index];
-      const names = ["Clear", "White+Trail", "Springy+Trail"];
+      const names = ["Clear", "White+Trail", "Springy+Trail", "Ellipse"];
       console.log(`✓ Canvas 2 → ${names[viz2Index]}`);
       return false;
     }
@@ -815,6 +836,38 @@ function keyPressed() {
   if (key === "m" || key === "M") {
     mirrorMode = !mirrorMode;
     console.log("✓ Mirror mode:", mirrorMode ? "ON" : "OFF");
+    return false;
+  }
+
+  // No-mapping single-screen mode (bypass projection mapper)
+  if (key === "n" || key === "N") {
+    noMappingMode = !noMappingMode;
+    console.log("✓ No-mapping mode:", noMappingMode ? "ON (single fullscreen canvas)" : "OFF (dual projection mapped)");
+    return false;
+  }
+
+  // Ellipse visualizer: G = toggle fill, H = toggle contour-offset (golden ratio overlap)
+  if (key === "g" || key === "G") {
+    let toggled = false;
+    for (let viz of [...visualizers1, ...visualizers2]) {
+      if (viz instanceof EllipseSchlemerVisualizer) {
+        viz.setFillEllipses(!viz.fillEllipses);
+        toggled = true;
+      }
+    }
+    if (toggled) console.log("✓ Ellipse fill:", visualizers1.find(v => v instanceof EllipseSchlemerVisualizer).fillEllipses ? "ON" : "OFF");
+    return false;
+  }
+
+  if (key === "h" || key === "H") {
+    let toggled = false;
+    for (let viz of [...visualizers1, ...visualizers2]) {
+      if (viz instanceof EllipseSchlemerVisualizer) {
+        viz.setContourMode(!viz.contourMode);
+        toggled = true;
+      }
+    }
+    if (toggled) console.log("✓ Ellipse contour mode:", visualizers1.find(v => v instanceof EllipseSchlemerVisualizer).contourMode ? "ON (offset)" : "OFF (sequential)");
     return false;
   }
 

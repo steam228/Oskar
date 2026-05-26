@@ -11,16 +11,13 @@ class ClearRedSchlemerVisualizer extends SchlemerVisualizer {
     this.trailHistory = [];
   }
   
-  // Override draw method to ignore trail effects completely
   draw(canvasWidth, canvasHeight, poses, showVideo, video, videoConfig) {
-    // Use appropriate push based on context
     if (this.pg) {
       this.pg.push();
     } else {
       push();
     }
 
-    // Apply mirror transform first (if enabled in videoConfig)
     if (videoConfig.mirrorMode) {
       if (this.pg) {
         this.pg.translate(canvasWidth, 0);
@@ -31,13 +28,24 @@ class ClearRedSchlemerVisualizer extends SchlemerVisualizer {
       }
     }
 
-    // Draw video background if requested
+    const hasMaskClip = videoConfig.maskEnabled && videoConfig.maskPoints && videoConfig.maskPoints.length >= 3;
+    if (hasMaskClip) {
+      this.applyMaskClip(videoConfig);
+    }
+
     if (showVideo && video) {
       this.drawVideoBackground(canvasWidth, canvasHeight, video, videoConfig);
     }
 
-    // Draw ONLY Schlemer sticks (no trails ever)
     this.drawSchlemerSticks(poses, videoConfig.offsetX, videoConfig.offsetY, videoConfig.scaleX, videoConfig.scaleY);
+
+    if (hasMaskClip) {
+      if (this.pg) {
+        this.pg.drawingContext.restore();
+      } else {
+        drawingContext.restore();
+      }
+    }
 
     if (this.pg) {
       this.pg.pop();
